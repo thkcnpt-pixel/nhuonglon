@@ -1,0 +1,190 @@
+trên trang bài làm
+javascript:(async()=>{
+// ===== Overlay nhập JSON =====
+const wrap=document.createElement('div');
+wrap.style.cssText='position:fixed;inset:0;z-index:999999;background:#000c;display:flex;flex-direction:column;padding:12px;gap:8px;box-sizing:border-box';
+wrap.innerHTML='<div style="color:#0f0;font:bold 14px sans-serif">Dán JSON từ Extractor vào ô dưới:</div><textarea id="_jsonIn" style="flex:1;width:100%;font:12px monospace;background:#111;color:#0f0;border:1px solid #0f0;padding:8px;box-sizing:border-box" placeholder="Giữ ngón tay vào đây → Dán"></textarea><div style="display:flex;gap:8px"><button id="_run" style="flex:1;padding:14px;font:bold 16px sans-serif;background:#0f0;color:#000;border:none;border-radius:6px">▶ Chạy</button><button id="_close" style="padding:14px;font:bold 16px sans-serif;background:#f00;color:#fff;border:none;border-radius:6px">✕</button></div>';
+document.body.append(wrap);
+const ta=wrap.querySelector('#_jsonIn');
+const btnRun=wrap.querySelector('#_run');
+const btnClose=wrap.querySelector('#_close');
+try{const t=await navigator.clipboard.readText();if(t&&t.includes('{')){ta.value=t}}catch(e){}
+
+btnClose.onclick=()=>wrap.remove();
+btnRun.onclick=async()=>{
+const jsonIn=ta.value.trim();
+if(!jsonIn){alert('Chưa dán JSON');return}
+// Sanitize: cắt từ { đầu đến } cuối
+const a=jsonIn.indexOf('{'),b=jsonIn.lastIndexOf('}');
+const clean=(a>=0&&b>a)?jsonIn.slice(a,b+1):jsonIn;
+let A;
+try{A=JSON.parse(clean)}catch(e){alert('JSON lỗi:\n'+e.message);return}
+if(!Object.keys(A).length){alert('JSON rỗng');return}
+wrap.remove();
+
+// ===== Normalize =====
+const MR={'𝑓':'f','𝑔':'g','𝑦':'y','𝑥':'x','𝑧':'z','𝑤':'w','𝑢':'u','𝑣':'v','𝑎':'a','𝑏':'b','𝑐':'c','𝑑':'d','𝑒':'e','𝑘':'k','𝑛':'n','𝑚':'m','𝑝':'p','𝑞':'q','𝑟':'r','𝑠':'s','𝑡':'t','𝐴':'A','𝐵':'B','𝐶':'C','𝐷':'D','𝐸':'E','𝐾':'K','𝑀':'M','𝑆':'S','𝑉':'V','𝑇':'T','𝑃':'P','𝑅':'R','𝑄':'Q','𝑁':'N','𝐻':'H','𝐼':'I','𝐺':'G','𝐹':'F','𝑂':'O','𝐿':'L','𝑈':'U','𝑊':'W','𝑌':'Y','𝑍':'Z','𝑋':'X','𝐽':'J','ℝ':'R','𝛥':'D','−':'-','′':"'",'∞':'inf','√':'sqrt'};
+const unmath=s=>(s||'').replace(/[\u{1D400}-\u{1D7FF}ℝ𝛥−′∞√∀∃]/gu,c=>MR[c]||c);
+const NN=s=>unmath(s).replace(/^[a-dA-D][\s\.\):]*/,'').replace(/</g,'L').replace(/>/g,'G').replace(/[^a-zA-Z0-9\-LG]/g,'').toLowerCase();
+const getFull=el=>{const t=el.innerText||el.textContent||'';const a=[...el.querySelectorAll('[aria-label]')].map(x=>x.getAttribute('aria-label')).join(' ');return t+' '+a};
+const isSel=b=>/selected-answer|selected|active|checked/.test(b.className);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const SV=(e,v)=>{const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;const st=Object.getOwnPropertyDescriptor(p,'value').set;if(st)st.call(e,v);else e.value=v;['input','change','blur'].forEach(t=>e.dispatchEvent(new Event(t,{bubbles:true})))};
+
+const done=new Set(),ok=[],fail=[];
+const total=Object.keys(A).length;
+
+const handle=(q)=>{
+  const box=q.querySelector('[id^="question_render_element_"]')||q;
+  const id=(box.id||'').match(/_(\d+)/)?.[1];
+  if(!id||done.has(id))return;
+  const a=A[id];
+  if(!a){fail.push(id+' noJSON');done.add(id);return}
+
+  // MC
+  if(a.type==='mc'){
+    const rows=[...q.querySelectorAll('.item-answer')];
+    const wt=NN(a.text);
+    let hit=rows.find(r=>NN(getFull(r))===wt);
+    if(!hit&&wt.length>4)hit=rows.find(r=>{const k=NN(getFull(r));return k&&(k.includes(wt)||wt.includes(k))});
+    if(hit){const b=hit.querySelector('button')||hit;if(!isSel(b))b.click();done.add(id);ok.push(id);return}
+    fail.push(id+' MC');done.add(id);return;
+  }
+
+  // TF
+  if(a.type==='tf'){
+    const btns=[...q.querySelectorAll('button')].filter(b=>/^(Đúng|Sai)$/i.test(b.textContent.trim()));
+    const conts=[];
+    for(const b of btns){
+      let p=b.parentElement;
+      while(p&&p!==q){
+        const bs=[...p.querySelectorAll('button')].filter(x=>/^(Đúng|Sai)$/i.test(x.textContent.trim()));
+        if(bs.length===2){if(!conts.includes(p))conts.push(p);break}
+        if(bs.length>2)break;
+        p=p.parentElement;
+      }
+    }
+    const used=new Set();
+    for(const st of a.S){
+      const wt=NN(st.t);let c=null;
+      for(const cc of conts){
+        if(used.has(cc))continue;
+        const k=NN(getFull(cc));
+        if(k&&wt&&(k.includes(wt)||wt.includes(k))){c=cc;break}
+      }
+      if(c){used.add(c);const bs=[...c.querySelectorAll('button')];const want=st.v?'Đúng':'Sai';const btn=bs.find(b=>b.textContent.trim().toLowerCase()===want.toLowerCase());if(btn&&!isSel(btn))btn.click();}
+      else fail.push(id+' TF');
+    }
+    done.add(id);ok.push(id);return;
+  }
+
+  // SA
+  if(a.type==='sa'){
+    const i=q.querySelector('textarea,input');
+    if(i){i.focus();SV(i,a.A);done.add(id);ok.push(id);return}
+    fail.push(id+' SA');done.add(id);
+  }
+};
+
+const scrollAll=async()=>{
+  const boxes=[...document.querySelectorAll('[id^="question_render_element_"]')];
+  for(const b of boxes){
+    b.scrollIntoView({block:'center'});
+    await sleep(280);
+    const w=b.closest('app-question-for-student-at-step-page')||b.closest('app-question-for-student-at-review-page')||b.closest('[class*="question-standalone"]')||b.parentElement;
+    if(w)handle(w);
+  }
+};
+for(let r=0;r<3;r++){await scrollAll();await sleep(450)}
+
+const missA=Object.keys(A).filter(id=>!done.has(id));
+const icon=(fail.length===0&&missA.length===0)?'🎉':'⚠️';
+const lines=[icon+' Kết quả','','✅ Đã điền: '+ok.length+'/'+total];
+if(fail.length)lines.push('❌ Lỗi: '+fail.length+'\n'+[...new Set(fail)].slice(0,8).join('\n'));
+if(missA.length)lines.push('⏸ Chưa render: '+missA.length);
+alert(lines.join('\n'));
+console.log('OK:',ok);console.log('FAIL:',fail);console.log('CHƯA:',missA);
+};
+})()
+trang kết quả
+javascript:(async()=>{
+const MR={'𝑓':'f','𝑔':'g','𝑦':'y','𝑥':'x','𝑧':'z','𝑤':'w','𝑢':'u','𝑣':'v','𝑎':'a','𝑏':'b','𝑐':'c','𝑑':'d','𝑒':'e','𝑘':'k','𝑛':'n','𝑚':'m','𝑝':'p','𝑞':'q','𝑟':'r','𝑠':'s','𝑡':'t','𝐴':'A','𝐵':'B','𝐶':'C','𝐷':'D','𝐸':'E','𝐾':'K','𝑀':'M','𝑆':'S','𝑉':'V','𝑇':'T','𝑃':'P','𝑅':'R','𝑄':'Q','𝑁':'N','𝐻':'H','𝐼':'I','𝐺':'G','𝐹':'F','𝑂':'O','𝐿':'L','𝑈':'U','𝑊':'W','𝑌':'Y','𝑍':'Z','𝑋':'X','𝐽':'J','ℝ':'R','𝛥':'D','−':'-','′':"'",'∞':'inf','√':'sqrt'};
+const unmath=s=>(s||'').replace(/[\u{1D400}-\u{1D7FF}ℝ𝛥−′∞√∀∃]/gu,c=>MR[c]||c);
+const C=s=>(s||'').replace(/\s+/g,' ').trim();
+const getFull=el=>{const t=el.innerText||el.textContent||'';const a=[...el.querySelectorAll('[aria-label]')].map(x=>x.getAttribute('aria-label')).join(' ');return C(t+' '+a)};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+const found=new Map(),unparsed=[];
+const parseQ=(q)=>{
+  const box=q.querySelector('[id^="question_render_element_"]')||q;
+  const id=(box.id||'').match(/_(\d+)/)?.[1];
+  if(!id||found.has(id))return;
+  const text=(q.innerText||q.textContent||'').replace(/\s+/g,' ');
+
+  // TF: a) b) c) d) + Đáp án đúng
+  const iDA=text.search(/Đáp\s*án\s*đúng\s*:/i);
+  if(iDA>=0){
+    const before=text.slice(0,iDA);
+    const all=[...before.matchAll(/(?:^|\s)([abcd])\)\s/g)];
+    let seq=null;
+    for(let i=0;i<=all.length-4;i++){
+      if(all[i][1]==='a'&&all[i+1][1]==='b'&&all[i+2][1]==='c'&&all[i+3][1]==='d'){
+        seq=[all[i],all[i+1],all[i+2],all[i+3]];
+      }
+    }
+    if(seq){
+      const stmts=seq.map((m,i)=>{const st=m.index+m[0].length;const en=i<3?seq[i+1].index:before.length;return C(before.slice(st,en))});
+      const after=text.slice(iDA,iDA+800);
+      const dm=after.match(/a\)\s*(Đúng|Sai)\s*b\)\s*(Đúng|Sai)\s*c\)\s*(Đúng|Sai)\s*d\)\s*(Đúng|Sai)/i);
+      if(dm&&stmts.every(x=>x.length>2)){
+        found.set(id,{type:'tf',S:stmts.map((t,i)=>({t,v:dm[i+1].toLowerCase()==='đúng'?1:0}))});
+        return;
+      }
+    }
+  }
+
+  // SA
+  const inputs=q.querySelectorAll('input,textarea');
+  const msa=text.match(/Đáp\s*án\s*được\s*chấp\s*nhận\s*[:\s]*([^\s]+)/i);
+  if(msa||inputs.length){
+    let v='';for(const inp of inputs)if(inp.value?.trim()){v=inp.value.trim();break}
+    if(!v&&msa)v=msa[1];
+    if(v){found.set(id,{type:'sa',A:v});return}
+  }
+
+  // MC
+  const ans=[...q.querySelectorAll('.answer,.item-answer')];
+  if(ans.length>=2){
+    let el=ans.find(a=>a.classList.contains('correct'));
+    if(!el){
+      const mm=text.match(/Đáp\s*án\s*đúng\s*:\s*([A-D])(?![a-zà-ỹ])/);
+      if(mm)el=ans['ABCD'.indexOf(mm[1])];
+    }
+    if(el){found.set(id,{type:'mc',text:getFull(el)});return}
+  }
+  unparsed.push(id+' | '+text.slice(0,180));
+};
+
+const scrollAll=async()=>{
+  const boxes=[...document.querySelectorAll('[id^="question_render_element_"]')];
+  for(const b of boxes){
+    b.scrollIntoView({block:'center'});
+    await sleep(320);
+    const wrap=b.closest('app-question-for-student-at-review-page')||b.closest('[class*="question-standalone"]')||b.parentElement;
+    if(wrap)parseQ(wrap);
+  }
+};
+for(let r=0;r<3;r++){await scrollAll();await sleep(450)}
+
+const out=JSON.stringify(Object.fromEntries([...found.keys()].sort((a,b)=>+a-+b).map(id=>[id,found.get(id)])));
+const ta=document.createElement('textarea');ta.value=out;
+ta.style.cssText='position:fixed;top:0;left:0;width:100vw;height:60vh;z-index:999999;font-size:11px;padding:10px;background:#111;color:#0f0;box-sizing:border-box';
+ta.onclick=()=>ta.select();
+const btn=document.createElement('button');btn.textContent='✕ Đóng';btn.style.cssText='position:fixed;top:60vh;right:10px;z-index:1000000;padding:10px 16px;font-size:14px';
+btn.onclick=()=>{ta.remove();btn.remove()};
+document.body.append(ta,btn);ta.focus();ta.select();
+
+const c={mc:0,tf:0,sa:0};found.forEach(v=>c[v.type]++);
+console.log('=== CHƯA PARSE ===\n'+(unparsed.join('\n')||'(không có)'));
+alert(`📊 Tổng: ${found.size} câu\n├─ MC: ${c.mc}\n├─ TF: ${c.tf}\n└─ SA: ${c.sa}\n${unparsed.length?'⚠️ Chưa parse: '+unparsed.length:'✅ Hoàn hảo'}\n\nChạm textarea → Copy`);
+})()
